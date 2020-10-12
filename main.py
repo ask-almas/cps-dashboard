@@ -1,7 +1,7 @@
 from time import sleep
 from kafka import KafkaConsumer
 from kafka.structs import TopicPartition
-from config import KAFKA_HOST, KAFKA_PORT, KAFKA_CONSUME_TOPICS
+from config.config import KAFKA_HOST, KAFKA_PORT, KAFKA_CONSUME_TOPICS
 
 
 class Main(object):

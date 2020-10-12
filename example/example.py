@@ -1,6 +1,6 @@
 from kafka import KafkaConsumer
 from kafka.structs import TopicPartition
-from config import KAFKA_PORT, KAFKA_HOST
+from config.config import KAFKA_PORT, KAFKA_HOST
 
 KAFKA_CONSUME_TOPIC = "dummycontrol"
 

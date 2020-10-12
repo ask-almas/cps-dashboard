@@ -1,3 +1,5 @@
 .idea
 venv
 /config.py
+/example/monitor_topics.sh
+/example/topics.png

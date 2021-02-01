@@ -12,4 +12,4 @@
 
 `pip install -r requirements.txt`
 
-`python label_tennis_ball_gui.py`
+`python cps-dashboard.py`

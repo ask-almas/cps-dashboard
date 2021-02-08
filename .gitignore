@@ -3,3 +3,4 @@ venv
 config
 example
 __pycache__
+/cache-directory/

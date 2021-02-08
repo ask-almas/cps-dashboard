@@ -123,5 +123,4 @@ class KafkaClient(object):
         lat = sensoris_gps_pos.y.value/1000.0 if utm else sensoris_gps_pos.latitude.value * SENSORIS_WGS_RESOLUTION
         lon = sensoris_gps_pos.x.value/1000.0 if utm else sensoris_gps_pos.longitude.value * SENSORIS_WGS_RESOLUTION
         alt = sensoris_gps_pos.z.value/1000.0 if utm else sensoris_gps_pos.altitude.value / 1000.0
-        print(lat, lon)
         return lat, lon, alt

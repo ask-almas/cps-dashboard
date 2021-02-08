@@ -9,8 +9,14 @@ from dash_extensions import Keyboard
 
 from config.config import SYMBOLS, OPACITY, COLORS, SIZES
 from kafka_client import KafkaClient
+from flask_caching import Cache
 
 app = dash.Dash()
+cache = Cache(app.server, config={
+    'CACHE_TYPE': 'filesystem',
+    'CACHE_DIR': 'cache-directory'
+})
+TIMEOUT = 300
 obj_list = [[]]
 obj_idx = 0
 old_topic = None
@@ -64,6 +70,7 @@ def keydown(event, n_keydowns, value):
     return scene
 
 
+@cache.memoize(timeout=TIMEOUT)
 def update_obj_list(value, is_utm=False):
     kafka_client = KafkaClient()
     return kafka_client.get_messages_from_topic(value, is_utm)

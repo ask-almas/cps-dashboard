@@ -1,4 +1,5 @@
 import time
+import math
 
 from kafka import KafkaConsumer
 from kafka.structs import TopicPartition
@@ -59,7 +60,7 @@ class KafkaClient(object):
     def _stop(self):
         self._consumer.close()
 
-    def get_messages_from_topic(self, topic, is_utm=False):
+    def get_messages_from_topic(self, topic, is_utm=False, is_detection=False):
         tic = time.perf_counter()
         print(f"Retrieving messages from topic: {topic}")
         self._connect_to_topic(topic)
@@ -70,7 +71,7 @@ class KafkaClient(object):
         for msg in self._consumer:
             dm = DataMessage()
             dm.ParseFromString(msg.value)
-            objects = self._gps_objects_from(dm, is_utm)
+            objects = self._gps_objects_from(dm, is_utm, is_detection)
             if pre_fusion:
                 if objects[0].ssid in d:
                     objects_list.append([])
@@ -94,13 +95,17 @@ class KafkaClient(object):
         print(f"Kafka {topic} topic has partitions: {self._consumer.partitions_for_topic(topic)}")
         self._consumer.seek_to_beginning()
 
-    def _gps_objects_from(self, dm, utm=False):
+    def _gps_objects_from(self, dm, utm=False, is_detection=False):
         result = []
         ssid = dm.envelope.ids.vehicle_id.value
         origin = dm.event_group[0].envelope.origin
         origin_ts = origin.timestamp.posix_time.value
-        origin_gps = origin.position_and_accuracy.metric_ecef if utm else origin.position_and_accuracy.geographic_wgs84
+        if utm:
+            origin_gps = origin.position_and_accuracy.metric_ecef
+        else:
+            origin_gps = origin.position_and_accuracy.geographic_wgs84
         origin_lat, origin_lon, origin_alt = self._unpack_gps(origin_gps, utm)
+        yaw = origin.orientation_and_accuracy.euler_vehicle.yaw.value/100
         origin = GPSObject(ssid, -1, origin_ts, origin_lat, origin_lon, origin_alt)
         result.append(origin)
         movable_objects = dm.event_group[0].object_detection_category.movable_object
@@ -108,8 +113,14 @@ class KafkaClient(object):
             movobj_id = mov.object_id.value
             movobj_conf = mov.existence_confidence.value / 100.0
             box = mov.rectangular_box_and_accuracy.center_orientation_size
-            box_gps = box.center_position_and_accuracy.metric_ecef if utm else box.center_position_and_accuracy.geographic_wgs84
-            box_lat, box_lon, box_alt = self._unpack_gps(box_gps, utm)
+            if is_detection:
+                box_gps = box.center_position_and_accuracy.metric_vehicle
+            elif utm:
+                box_gps = box.center_position_and_accuracy.metric_ecef
+            else:
+                box_gps = box.center_position_and_accuracy.geographic_wgs84
+            box_lat, box_lon, box_alt = self._unpack_gps(box_gps, utm, is_detection,
+                                                         origin_lat, origin_lon, origin_alt, yaw)
             cov_xx = box.center_position_and_accuracy.covariance.a11.value / 1000.0
             cov_yy = box.center_position_and_accuracy.covariance.a22.value / 1000.0
             cov_xy = box.center_position_and_accuracy.covariance.a12.value / 1000.0
@@ -119,8 +130,28 @@ class KafkaClient(object):
         return result
 
     @staticmethod
-    def _unpack_gps(sensoris_gps_pos, utm=False):
-        lat = sensoris_gps_pos.y.value/1000.0 if utm else sensoris_gps_pos.latitude.value * SENSORIS_WGS_RESOLUTION
-        lon = sensoris_gps_pos.x.value/1000.0 if utm else sensoris_gps_pos.longitude.value * SENSORIS_WGS_RESOLUTION
-        alt = sensoris_gps_pos.z.value/1000.0 if utm else sensoris_gps_pos.altitude.value / 1000.0
+    def _unpack_gps(sensoris_gps_pos, utm=False, is_detection=False, origin_lat=0.0, origin_lon=0.0, origin_alt=0.0,
+                    yaw=0.0):
+        if is_detection and utm:
+            x_hat = sensoris_gps_pos.x.value / 1000.0
+            y_hat = sensoris_gps_pos.y.value / 1000.0
+            lat = origin_lat + x_hat*math.sin(math.radians(yaw)) + y_hat*math.cos(math.radians(yaw))
+            lon = origin_lon + x_hat*math.cos(math.radians(yaw)) - y_hat*math.sin(math.radians(yaw))
+            alt = sensoris_gps_pos.z.value / 1000.0
+        elif is_detection:
+            x_hat = sensoris_gps_pos.x.value / 1000.0
+            y_hat = sensoris_gps_pos.y.value / 1000.0
+            d_x = x_hat*math.cos(math.radians(yaw)) - y_hat*math.sin(math.radians(yaw))
+            d_y = x_hat*math.sin(math.radians(yaw)) + y_hat*math.cos(math.radians(yaw))
+            lat = origin_lat + (d_y/6371000.0)*(180/math.pi)
+            lon = origin_lon + (d_x/6371000.0)*(180/math.pi)/math.cos(origin_lat*math.pi/180)
+            alt = sensoris_gps_pos.z.value / 1000.0
+        elif utm:
+            lat = sensoris_gps_pos.y.value / 1000.0
+            lon = sensoris_gps_pos.x.value / 1000.0
+            alt = sensoris_gps_pos.z.value / 1000.0
+        else:
+            lat = sensoris_gps_pos.latitude.value * SENSORIS_WGS_RESOLUTION
+            lon = sensoris_gps_pos.longitude.value * SENSORIS_WGS_RESOLUTION
+            alt = sensoris_gps_pos.altitude.value / 1000.0
         return lat, lon, alt

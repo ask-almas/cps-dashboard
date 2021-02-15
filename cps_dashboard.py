@@ -16,7 +16,7 @@ cache = Cache(app.server, config={
     'CACHE_TYPE': 'filesystem',
     'CACHE_DIR': 'cache-directory'
 })
-TIMEOUT = 300
+TIMEOUT = 600
 obj_list = [[]]
 obj_idx = 0
 old_topic = None
@@ -50,11 +50,15 @@ def keydown(event, n_keydowns, value):
     if 'utm' in value:
         is_utm = True
 
+    is_detection = False
+    if 'detection' in value:
+        is_detection = True
+
     if value != old_topic:
         old_topic = value
         obj_idx = 0
         obj_list = [[]]
-        obj_list = update_obj_list(value, is_utm)
+        obj_list = update_obj_list(value, is_utm, is_detection)
         scene = get_curr_scene(is_utm)
         print("done")
         return scene
@@ -71,9 +75,9 @@ def keydown(event, n_keydowns, value):
 
 
 @cache.memoize(timeout=TIMEOUT)
-def update_obj_list(value, is_utm=False):
+def update_obj_list(value, is_utm=False, is_detection=False):
     kafka_client = KafkaClient()
-    return kafka_client.get_messages_from_topic(value, is_utm)
+    return kafka_client.get_messages_from_topic(value, is_utm, is_detection)
 
 
 def get_curr_scene(is_utm=False):

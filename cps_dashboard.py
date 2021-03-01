@@ -1,5 +1,4 @@
 import time
-
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
@@ -9,17 +8,20 @@ from dash_extensions import Keyboard
 
 from config.config import SYMBOLS, OPACITY, COLORS, SIZES
 from kafka_client import KafkaClient
-from flask_caching import Cache
+from object_lists_thread import ObjectListsThread
+from topic_object import TopicObject
 
 app = dash.Dash()
-cache = Cache(app.server, config={
-    'CACHE_TYPE': 'filesystem',
-    'CACHE_DIR': 'cache-directory'
-})
-TIMEOUT = 600
-obj_list = [[]]
 obj_idx = 0
 old_topic = None
+obj_list = None
+
+workers = {"detections": None, "detections-utm": None, "objects-utm": None, "fusion-utm": None,
+           "objects": None, "campus-st": None}
+
+obj_lists = {"detections": TopicObject("detections"), "detections-utm": TopicObject("detections-utm"),
+             "objects-utm": TopicObject("objects-utm"), "fusion-utm": TopicObject("fusion-utm"),
+             "objects": TopicObject("objects"), "campus-st": TopicObject("campus-st")}
 
 app.layout = html.Div(children=[
     Keyboard(id="keyboard"),
@@ -40,26 +42,28 @@ def update_options(n):
 @app.callback([Output("output", "children"), Output('bev_map', 'figure')],
               [Input("keyboard", "keydown"), Input("keyboard", "n_keydowns"), Input("topic-choice", "value")])
 def keydown(event, n_keydowns, value):
-    global obj_list, obj_idx, old_topic
+    global obj_list, obj_idx, old_topic, obj_lists
 
     if value is None:
         scene = get_curr_scene()
         return scene
 
-    is_utm = False
-    if 'utm' in value:
-        is_utm = True
-
-    is_detection = False
-    if 'detection' in value:
-        is_detection = True
-
     if value != old_topic:
         old_topic = value
         obj_idx = 0
-        obj_list = [[]]
-        obj_list = update_obj_list(value, is_utm, is_detection)
-        scene = get_curr_scene(is_utm)
+        if workers[value] is None:
+            print("Worker Not Found")
+            x = ObjectListsThread(obj_lists[value])
+            print("Creating Thread")
+            x.start()
+            workers[value] = x
+            time.sleep(1)
+            print("Retrieving Messages from Kafka")
+            obj_list = obj_lists[value]
+        else:
+            print(f"Number of scenes={len(obj_list)}")
+            obj_list = obj_lists[value]
+        scene = get_curr_scene(obj_list.is_utm())
         print("done")
         return scene
 
@@ -70,19 +74,13 @@ def keydown(event, n_keydowns, value):
         if obj_idx > 0:
             obj_idx -= 1
 
-    scene = get_curr_scene(is_utm)
+    scene = get_curr_scene(obj_list.is_utm())
     return scene
 
 
-@cache.memoize(timeout=TIMEOUT)
-def update_obj_list(value, is_utm=False, is_detection=False):
-    kafka_client = KafkaClient()
-    return kafka_client.get_messages_from_topic(value, is_utm, is_detection)
-
-
 def get_curr_scene(is_utm=False):
-    global obj_list, obj_idx
-    scene_objects = obj_list[obj_idx]
+    global obj_list, obj_idx, old_topic
+    scene_objects = obj_list.get_by_index(obj_idx) if obj_list else []
     # TODO: maybe somehow it can be avoided to create new figure object for each step
     fig = go.Figure()
     fig.update_layout(

@@ -4,8 +4,7 @@ import math
 from kafka import KafkaConsumer
 from kafka.structs import TopicPartition
 
-from config.config import KAFKA_PORT, KAFKA_HOST, KAFKA_CONSUME_TOPICS, SENSORIS_WGS_RESOLUTION, FUSION_SSID, \
-    PRE_FUSION_TOPICS
+from config.config import KAFKA_PORT, KAFKA_HOST, KAFKA_CONSUME_TOPICS, SENSORIS_WGS_RESOLUTION, FUSION_SSID
 from gps_object import GPSObject
 from sensoris.protobuf.messages.data_pb2 import DataMessage
 
@@ -60,15 +59,21 @@ class KafkaClient(object):
     def _stop(self):
         self._consumer.close()
 
-    def get_messages_from_topic(self, topic, is_utm=False, is_detection=False):
+    def get_messages_from_topic(self, topic_ob=None):
+        topic, is_utm, is_detection = topic_ob.topic(), topic_ob.is_utm(), topic_ob.is_detection()
         tic = time.perf_counter()
         print(f"Retrieving messages from topic: {topic}")
         self._connect_to_topic(topic)
-        objects_list = [[]]
+        objects_list = topic_ob.get_messages()
         self._consumer.poll()
         d = {}
-        pre_fusion = True if topic in PRE_FUSION_TOPICS else False
+        pre_fusion = topic_ob.is_prefusion()
+        c = 0
         for msg in self._consumer:
+            if c == 10:
+                time.sleep(0.01)
+                c = 0
+            c += 1
             dm = DataMessage()
             dm.ParseFromString(msg.value)
             objects = self._gps_objects_from(dm, is_utm, is_detection)
@@ -90,8 +95,7 @@ class KafkaClient(object):
 
     def _connect_to_topic(self, topic):
         self._consumer = KafkaConsumer(topic,
-                                       bootstrap_servers=f'{self._kafka_host}:{self._kafka_port}',
-                                       consumer_timeout_ms=1000)
+                                       bootstrap_servers=f'{self._kafka_host}:{self._kafka_port}')
         print(f"Kafka {topic} topic has partitions: {self._consumer.partitions_for_topic(topic)}")
         self._consumer.seek_to_beginning()
 

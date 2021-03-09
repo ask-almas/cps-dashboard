@@ -1,5 +1,6 @@
 import time
 import dash
+import utm
 import dash_core_components as dcc
 import dash_html_components as html
 import plotly.graph_objs as go
@@ -16,31 +17,41 @@ obj_idx = 0
 old_topic = None
 obj_list = None
 
-workers = {"detections": None, "detections-utm": None, "objects-utm": None, "fusion-utm": None,
-           "objects": None, "campus-st": None}
+workers = {"detections": None,
+           "detections-utm": None,
+           "objects-utm": None,
+           "fusion-utm": None,
+           "objects": None,
+           "campus-st": None}
 
-obj_lists = {"detections": TopicObject("detections"), "detections-utm": TopicObject("detections-utm"),
-             "objects-utm": TopicObject("objects-utm"), "fusion-utm": TopicObject("fusion-utm"),
-             "objects": TopicObject("objects"), "campus-st": TopicObject("campus-st")}
+obj_lists = {"detections": TopicObject("detections"),
+             "detections-utm": TopicObject("detections-utm"),
+             "objects-utm": TopicObject("objects-utm"),
+             "fusion-utm": TopicObject("fusion-utm"),
+             "objects": TopicObject("objects"),
+             "campus-st": TopicObject("campus-st")}
 
-app.layout = html.Div(children=[
-    Keyboard(id="keyboard"),
-    html.H1("Central Perception Dashboard"),
-    dcc.Dropdown(id="topic-choice"),
-    dcc.Interval(id='interval_component', interval=1000, n_intervals=0),
-    html.Div(id="output"),
-    dcc.Graph(id="bev_map", animate=False)
+app.layout = html.Div(children=[Keyboard(id="keyboard"),
+                                html.H1("Central Perception Dashboard"),
+                                dcc.Dropdown(id="topic-choice"),
+                                dcc.Interval(id='interval_component', interval=1000, n_intervals=0),
+                                html.Div(id="output"),
+                                dcc.Graph(id="bev_map", animate=False)
 ])
 
 
-@app.callback(Output('topic-choice', 'options'), Input('interval_component', 'n_intervals'))
+@app.callback(Output('topic-choice', 'options'),
+              Input('interval_component', 'n_intervals'))
 def update_options(n):
     kafka_client = KafkaClient()
     return kafka_client.get_topic_options()
 
 
-@app.callback([Output("output", "children"), Output('bev_map', 'figure')],
-              [Input("keyboard", "keydown"), Input("keyboard", "n_keydowns"), Input("topic-choice", "value")])
+@app.callback([Output("output", "children"),
+               Output('bev_map', 'figure')],
+              [Input("keyboard", "keydown"),
+               Input("keyboard", "n_keydowns"),
+               Input("topic-choice", "value")])
 def keydown(event, n_keydowns, value):
     global obj_list, obj_idx, old_topic, obj_lists
 
@@ -83,19 +94,15 @@ def get_curr_scene(is_utm=False):
     scene_objects = obj_list.get_by_index(obj_idx) if obj_list else []
     # TODO: maybe somehow it can be avoided to create new figure object for each step
     fig = go.Figure()
-    fig.update_layout(
-        showlegend=True,
-        autosize=False,
-        width=900,
-        height=900
-    )
-
-    if not is_utm:
-        fig.update_xaxes(range=[19.05583, 19.05697])
-        fig.update_yaxes(range=[47.47845, 47.47925])
-    else:
-        fig.update_xaxes(range=[353520.38, 353608.49])
-        fig.update_yaxes(range=[5260166.73, 5260253.49])
+    fig.add_trace(go.Scattermapbox())
+    fig.update_layout(showlegend=True,
+                      autosize=False,
+                      width=1000,
+                      height=600,
+                      mapbox=dict(style='open-street-map',
+                                  zoom=18,
+                                  center={"lat": 47.47894534674124,
+                                          "lon": 19.056331847185383}))
 
     if len(scene_objects) > 0 and scene_objects[-1] is not None:
         data_sources = {}
@@ -106,21 +113,22 @@ def get_curr_scene(is_utm=False):
                 data_sources[so.ssid].append(so)
         for source_system in data_sources:
             ds_objects = data_sources[source_system]
-            fig.add_trace(go.Scatter(
-                x=[o.lon for o in ds_objects],
-                y=[o.lat for o in ds_objects],
-                marker=dict(color=COLORS[source_system], size=SIZES[source_system]),
+            fig.add_trace(go.Scattermapbox(
+                lon=[utm.to_latlon(o.lon, o.lat, 34, 'U')[1] if is_utm else o.lon for o in ds_objects],
+                lat=[utm.to_latlon(o.lon, o.lat, 34, 'U')[0] if is_utm else o.lat for o in ds_objects],
+                marker=dict(color=COLORS[source_system],
+                            size=SIZES[source_system]),
                 opacity=OPACITY[source_system],
                 mode="markers+text",
                 text=[f"{o.cov_xx:.3f}     {o.cov_yy:.3f}" for o in ds_objects] if source_system != "3_390" else "",
-                marker_symbol=SYMBOLS[source_system],
-                name=source_system
+                # marker_symbol=SYMBOLS[source_system],
+                name=source_system,
             ))
         object_nums = {}
         for source_system in data_sources:
             ds_objects = data_sources[source_system]
             object_nums[source_system] = len(ds_objects)
-        return f"{old_topic} Fusion time @ {scene_objects[-1].ts / 1000.0} {object_nums}", fig
+        return f"Fusion time @ {scene_objects[-1].ts / 1000.0} {object_nums}", fig
     else:
         return f"No data in future! (requested fusion step: {obj_idx})", fig
 

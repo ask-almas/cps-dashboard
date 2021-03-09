@@ -111,24 +111,28 @@ def get_curr_scene(is_utm=False):
                 data_sources[so.ssid] = []
             if so.suid >= 0:
                 data_sources[so.ssid].append(so)
+
+        object_nums = {}
+        for source_system in data_sources:
+            ds_objects = data_sources[source_system]
+            object_nums[source_system] = len(ds_objects)
+
         for source_system in data_sources:
             ds_objects = data_sources[source_system]
             fig.add_trace(go.Scattermapbox(
                 lon=[utm.to_latlon(o.lon, o.lat, 34, 'U')[1] if is_utm else o.lon for o in ds_objects],
                 lat=[utm.to_latlon(o.lon, o.lat, 34, 'U')[0] if is_utm else o.lat for o in ds_objects],
-                marker=dict(color=COLORS[source_system],
-                            size=SIZES[source_system]),
+                marker=dict(
+                    color=COLORS[source_system],
+                    size=SIZES[source_system],
+                    # symbol=SYMBOLS[source_system]
+                    ),
                 opacity=OPACITY[source_system],
                 mode="markers+text",
                 text=[f"{o.cov_xx:.3f}     {o.cov_yy:.3f}" for o in ds_objects] if source_system != "3_390" else "",
-                # marker_symbol=SYMBOLS[source_system],
-                name=source_system,
+                name=f"{source_system}: {object_nums[source_system]} detected objects",
             ))
-        object_nums = {}
-        for source_system in data_sources:
-            ds_objects = data_sources[source_system]
-            object_nums[source_system] = len(ds_objects)
-        return f"Fusion time @ {scene_objects[-1].ts / 1000.0} {object_nums}", fig
+        return f"Fusion time @ {scene_objects[-1].ts / 1000.0}", fig
     else:
         return f"No data in future! (requested fusion step: {obj_idx})", fig
 

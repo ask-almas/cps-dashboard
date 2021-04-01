@@ -7,7 +7,7 @@ import plotly.graph_objs as go
 from dash.dependencies import Input, Output
 from dash_extensions import Keyboard
 
-from config.config import SYMBOLS, OPACITY, COLORS, SIZES
+from config.config import SYMBOLS, OPACITY, COLORS, SIZES, MAPBOX_TOKEN
 from kafka_client import KafkaClient
 from object_lists_thread import ObjectListsThread
 from topic_object import TopicObject
@@ -37,7 +37,8 @@ app.layout = html.Div(children=[Keyboard(id="keyboard"),
                                 dcc.Interval(id='interval_component', interval=1000, n_intervals=0),
                                 html.Div(id="output"),
                                 dcc.Graph(id="bev_map", animate=False)
-])
+                                ]
+                      )
 
 
 @app.callback(Output('topic-choice', 'options'),
@@ -99,16 +100,19 @@ def get_curr_scene(is_utm=False):
                       autosize=False,
                       width=1000,
                       height=600,
-                      mapbox=dict(style='open-street-map',
+                      mapbox=dict(style='outdoors',
+                                  accesstoken=MAPBOX_TOKEN,
                                   zoom=18,
                                   center={"lat": 47.47894534674124,
                                           "lon": 19.056331847185383}))
 
     if len(scene_objects) > 0 and scene_objects[-1] is not None:
         data_sources = {}
+        origins = []
         for so in scene_objects:
             if so.ssid not in data_sources:
                 data_sources[so.ssid] = []
+                origins.append(so)
             if so.suid >= 0:
                 data_sources[so.ssid].append(so)
 
@@ -116,6 +120,19 @@ def get_curr_scene(is_utm=False):
         for source_system in data_sources:
             ds_objects = data_sources[source_system]
             object_nums[source_system] = len(ds_objects)
+
+        for orig in origins:
+            fig.add_trace(go.Scattermapbox(
+                lon=[utm.to_latlon(orig.lon, orig.lat, 34, 'U')[1] if is_utm else orig.lon],
+                lat=[utm.to_latlon(orig.lon, orig.lat, 34, 'U')[0] if is_utm else orig.lat],
+                marker=dict(
+                    color='brown',
+                    size=15,
+                    symbol='star'
+                ),
+                text=f"source system: {orig.ssid}",
+                name=f"source system: {orig.ssid}"
+            ))
 
         for source_system in data_sources:
             ds_objects = data_sources[source_system]
@@ -125,10 +142,10 @@ def get_curr_scene(is_utm=False):
                 marker=dict(
                     color=COLORS[source_system],
                     size=SIZES[source_system],
-                    # symbol=SYMBOLS[source_system]
+                    symbol=SYMBOLS[source_system]
                     ),
                 opacity=OPACITY[source_system],
-                mode="markers+text",
+                mode="markers",
                 text=[f"{o.cov_xx:.3f}     {o.cov_yy:.3f}" for o in ds_objects] if source_system != "3_390" else "",
                 name=f"{source_system}: {object_nums[source_system]} detected objects",
             ))
